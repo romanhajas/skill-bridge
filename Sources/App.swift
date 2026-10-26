@@ -18,6 +18,7 @@ enum Entry {
 
 struct SkillBridgeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @AppStorage(Updater.installKey) private var installUpdates = true
 
     var body: some Scene {
         Window("Skill Bridge", id: "main") {
@@ -28,60 +29,9 @@ struct SkillBridgeApp: App {
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { Task { await Updater.shared.check(manual: true) } }
+                Toggle("Install Updates Automatically", isOn: $installUpdates)
             }
         }
-    }
-}
-
-/// Looks for a newer release on GitHub once a day, or when asked.
-@MainActor
-final class Updater: ObservableObject {
-    static let shared = Updater()
-    static let latestAPI = URL(string: "https://api.github.com/repos/romanhajas/skill-bridge/releases/latest")!
-    private static let lastCheckKey = "lastUpdateCheck"
-
-    /// A newer version and its release page, once found.
-    @Published var available: (version: String, page: URL)?
-    /// The answer to a check you asked for, shown as an alert.
-    @Published var message: String?
-
-    var current: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
-
-    func checkIfDue() {
-        let last = UserDefaults.standard.double(forKey: Self.lastCheckKey)
-        if Date().timeIntervalSince1970 - last > 24 * 3600 { Task { await check(manual: false) } }
-    }
-
-    func check(manual: Bool) async {
-        var request = URLRequest(url: Self.latestAPI, timeoutInterval: 15)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let release = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let tag = release["tag_name"] as? String else {
-            if manual { message = "Couldn't reach GitHub to check for updates." }
-            return
-        }
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastCheckKey)
-        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        if Self.isNewer(version, than: current) {
-            let page = (release["html_url"] as? String).flatMap(URL.init(string:))
-                ?? URL(string: "https://github.com/romanhajas/skill-bridge/releases/latest")!
-            available = (version, page)
-            if manual { NSWorkspace.shared.open(page) }
-        } else if manual {
-            message = "Skill Bridge \(current) is the latest version."
-        }
-    }
-
-    /// Compares "2.10" > "2.9" by number, part by part; missing parts count as 0.
-    static func isNewer(_ candidate: String, than current: String) -> Bool {
-        func parts(_ v: String) -> [Int] { v.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 } }
-        let a = parts(candidate), b = parts(current)
-        for i in 0..<max(a.count, b.count) {
-            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
-            if x != y { return x > y }
-        }
-        return false
     }
 }
 
@@ -94,6 +44,11 @@ struct ChangesSheet: Identifiable {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// A downloaded update goes in as you quit, ready for next time.
+    func applicationWillTerminate(_ notification: Notification) {
+        Updater.shared.swapIn(reopen: false)
+    }
 
     /// Keeps `skill-bridge` in ~/.local/bin pointing at this copy of the app, so the
     /// Terminal command follows the app wherever it is moved. Never replaces a real file.
@@ -211,9 +166,22 @@ struct ContentView: View {
             }
             Spacer()
             if let update = updater.available {
-                Button("Skill Bridge \(update.version) is available") { NSWorkspace.shared.open(update.page) }
-                    .buttonStyle(.link)
-                    .font(.callout)
+                Group {
+                    if updater.preparing {
+                        Text("Downloading Skill Bridge \(update.version)…").foregroundStyle(.secondary)
+                    } else if updater.ready != nil {
+                        Button("Restart to update to \(update.version)") { updater.restart() }
+                            .help("Or keep going: it goes in when you quit.")
+                    } else if updater.canInstall, update.download != nil {
+                        Button("Install Skill Bridge \(update.version)") {
+                            Task { await updater.prepare(update, asked: true); updater.restart() }
+                        }
+                    } else {
+                        Button("Skill Bridge \(update.version) is available") { NSWorkspace.shared.open(update.page) }
+                    }
+                }
+                .buttonStyle(.link)
+                .font(.callout)
             }
             if model.busy { ProgressView().controlSize(.small) }
             Button { model.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }

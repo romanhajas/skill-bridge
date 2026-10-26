@@ -39,9 +39,12 @@ the ZIPs for you.
   folder; a missing description, one over 1024 characters, or one with `<` or
   `>`; files that `SKILL.md` refers to but the skill doesn't contain; and ZIPs
   over 20 MB.
-- **Tells you about new versions.** Once a day it looks for a newer release on
-  GitHub and shows a link in the window when there is one (**Skill Bridge →
-  Check for Updates…** checks right away).
+- **Updates itself.** Once a day it looks for a newer release on GitHub,
+  downloads it and checks that it's signed by the same developer as the copy
+  you have (anything else is thrown away). The new version goes in when you
+  quit, or right away with **Restart to update** in the window. **Skill Bridge →
+  Check for Updates…** checks now; switch off **Install Updates Automatically**
+  in the same menu to get an Install link instead.
 
 ## Install
 
@@ -115,8 +118,8 @@ Skills you hide are remembered in `~/.config/skill-bridge/hidden.json`.
 - It reads `~/.claude/skills` and Claude Code's synced copy, and writes only to
   `~/Desktop/claude-skills-upload`, `~/.config/skill-bridge` and, when you
   ask it to set up a skill, `~/.claude/skills/<name>`. Its only network request
-  is the daily update check against GitHub's public releases; it has no login of
-  its own.
+  is the daily update check against GitHub's public releases, and downloading
+  a new version from there; it has no login of its own.
 - The synced copy is how Claude Code stores your skills today; a future Claude
   Code update could change that.
 - The icon is drawn by `tools/make-icon.swift`.
