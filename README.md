@@ -136,6 +136,11 @@ Developer ID certificate exported as a .p12 (`DEVELOPER_ID_P12`, base64-encoded,
 and `DEVELOPER_ID_P12_PASSWORD`), `SIGN_IDENTITY`, and the notarization login
 (`APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`, an app-specific password).
 
+## Support
+
+Skill Bridge is free. If it saves you some packing and uploading, you can
+[sponsor me on GitHub](https://github.com/sponsors/romanhajas).
+
 ## License
 
 MIT
