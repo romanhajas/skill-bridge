@@ -5,18 +5,18 @@ import AppKit
 
 enum CLI {
     static let usage = """
-    Package your skills as ZIPs for upload to the Claude app.
+    Package your skills as .skill files for upload to the Claude app.
 
     Compares each of your skills on this Mac with the copy your Claude account has
-    (Claude Code keeps it in ~/.claude/skills/synced) and builds a ZIP only for the
-    skills that differ. Upload those in the Claude app: Settings -> Capabilities -> Skills.
+    (Claude Code keeps it in ~/.claude/skills/synced) and packs a .skill file only
+    for the skills that differ. Upload those in the Claude app: Settings -> Plugins -> Skills.
 
     Usage:
       skill-bridge                  check all your skills, build what changed
       skill-bridge NAME ...         also send these skills on this Mac to Claude
       skill-bridge --setup NAME     copy a skill from your Claude account onto this Mac
       skill-bridge --hide NAME      stop offering to set it up on this Mac (--unhide to undo)
-      skill-bridge --discard NAME   drop a waiting ZIP for a skill not in Claude yet
+      skill-bridge --discard NAME   drop a waiting .skill file for a skill not in Claude yet
       skill-bridge --changes NAME   show what differs from the copy in your Claude account
       skill-bridge --no-open        don't open the folder in Finder
 
@@ -60,7 +60,7 @@ enum CLI {
 
         let report = Skills.check(adding: names)
         if report.noSync {
-            print("Can't find your Claude account's skills on this Mac (~/.claude/skills/synced).\nOpen Claude Code once and sign in, then try again.")
+            print("Can't find your Claude account's skills on this Mac (~/.claude/skills/synced).\n\(Skills.noSyncAdvice) Then try again.")
             return 2
         }
 
@@ -85,8 +85,9 @@ enum CLI {
         if !onlyOnMac.isEmpty { print("On this Mac but not in Claude: \(onlyOnMac.joined(separator: ", "))  (skill-bridge NAME to add)") }
         print()
         if uploads > 0 {
-            print("Upload \(uploads) ZIP(s) from \(Skills.outDir.path)")
-            print("  Claude app -> Settings -> Capabilities -> Skills (replace the old version)")
+            print("Upload \(uploads) .skill file(s) from \(Skills.outDir.path)")
+            print("  Claude app -> Settings -> Plugins -> Skills (replace the old version)")
+            print("  Uploaded already? Claude Code syncs about every 10 minutes while it runs; check again after that.")
             if !flags.contains("--no-open") { NSWorkspace.shared.open(Skills.outDir) }
         } else {
             print("Everything matches your Claude account. No upload needed.")

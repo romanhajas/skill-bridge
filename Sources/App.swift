@@ -80,6 +80,26 @@ final class Model: ObservableObject {
 
     func refresh() { run { } }
 
+    private var watcher: Task<Void, Never>?
+
+    /// Checks again whenever Claude Code has synced its copy of your account, so a
+    /// skill you just uploaded drops off the list without pressing Refresh.
+    func watchClaudeCopy() {
+        guard watcher == nil else { return }
+        watcher = Task { [weak self] in
+            var seen = Skills.claudeCopyStamp()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard let self else { return }
+                let stamp = Skills.claudeCopyStamp()
+                if stamp != seen, !self.busy {
+                    seen = stamp
+                    self.refresh()
+                }
+            }
+        }
+    }
+
     /// Works out what differs from the Claude copy, off the main thread, then shows it.
     func showChanges(_ name: String) {
         Task.detached {
@@ -140,6 +160,7 @@ struct ContentView: View {
         .frame(minWidth: 540, minHeight: 480)
         .onAppear {
             model.refresh()
+            model.watchClaudeCopy()
             updater.checkIfDue()
         }
         .sheet(item: $model.changes) { ChangesView(sheet: $0) }
@@ -200,7 +221,7 @@ struct ContentView: View {
         VStack(spacing: 10) {
             Image(systemName: "person.crop.circle.badge.questionmark").font(.system(size: 40)).foregroundStyle(.secondary)
             Text("Can't find your Claude account's skills on this Mac").font(.headline)
-            Text("Open Claude Code once and sign in. It downloads your skills, then press Refresh.")
+            Text(Skills.noSyncAdvice + " This window updates by itself once they're here.")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .padding(40)
@@ -270,9 +291,11 @@ struct ContentView: View {
                 Image(systemName: "arrow.up.circle.fill").font(.system(size: 26)).foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(uploads == 1 ? "1 skill to upload" : "\(uploads) skills to upload").font(.headline)
-                    Text("In the Claude app: Settings → Capabilities → Skills. Replace the old version.")
+                    Text("In the Claude app: Settings → Plugins → Skills. Replace the old version.")
                         .font(.callout).foregroundStyle(.secondary)
                     Text("Drag a row into Claude, or Open Folder & Claude.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Text("Just uploaded? It drops off once Claude Code syncs, about every 10 minutes while it runs.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -312,10 +335,10 @@ struct ContentView: View {
         .contentShape(Rectangle())
 
         if case .upload = row.state {
-            // Drag the row to drop its ZIP into Claude's upload dialog or window.
+            // Drag the row to drop its .skill file into Claude's upload dialog or window.
             line
-                .onDrag { NSItemProvider(contentsOf: Skills.zip(for: row.name)) ?? NSItemProvider() }
-                .help("Drag into Claude to upload \(row.name).zip")
+                .onDrag { NSItemProvider(contentsOf: Skills.upload(for: row.name)) ?? NSItemProvider() }
+                .help("Drag into Claude to upload \(row.name).skill")
         } else {
             line
         }
@@ -339,7 +362,7 @@ struct ContentView: View {
             switch row.state {
             case .upload(let new):
                 Button("Changes") { model.showChanges(row.name) }
-                Button("Show ZIP") { NSWorkspace.shared.activateFileViewerSelecting([Skills.zip(for: row.name)]) }
+                Button("Show File") { NSWorkspace.shared.activateFileViewerSelecting([Skills.upload(for: row.name)]) }
                 if new { Button("Cancel") { model.discard(row.name) } }
             case .upToDate:
                 Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([Skills.skillsDir.appendingPathComponent(row.name)]) }

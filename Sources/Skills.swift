@@ -1,10 +1,11 @@
-// Skills.swift - compare your skills with your Claude account and build upload ZIPs.
+// Skills.swift - compare your skills with your Claude account and pack them for upload.
 //
 // Claude Code keeps a copy of the skills in your Claude account under
 // ~/.claude/skills/synced/<id>/ (with a manifest.json). Every skill of yours that
 // also lives in ~/.claude/skills/<name> is staged the way the Claude app expects
-// it, compared with that copy, and zipped into ~/Desktop/claude-skills-upload only
-// when the two differ. So that folder always holds exactly what needs uploading.
+// it, compared with that copy, and packed as <name>.skill (a ZIP) into
+// ~/Desktop/claude-skills-upload only when the two differ. So that folder always
+// holds exactly what needs uploading.
 
 import Foundation
 
@@ -80,16 +81,17 @@ enum Skills {
     static let blockScalars: Set<String> = ["|", ">", "|-", ">-", "|+", ">+"]
     /// Words a skill's name may not contain.
     static let reservedWords = ["anthropic", "claude"]
-    static let maxZipBytes = 20 * 1_048_576
+    static let maxUploadBytes = 20 * 1_048_576
 
     private static let fm = FileManager.default
 
-    static func zip(for name: String) -> URL { outDir.appendingPathComponent("\(name).zip") }
+    /// Claude's "Upload a new version" dialog takes only a .skill file (a ZIP by another name) or a SKILL.md.
+    static func upload(for name: String) -> URL { outDir.appendingPathComponent("\(name).skill") }
 
     // MARK: - Check
 
-    /// Compares every skill and rebuilds the ZIPs. `adding` are skills on this Mac to
-    /// send to Claude for the first time; a ZIP already waiting for one counts too.
+    /// Compares every skill and repacks the uploads. `adding` are skills on this Mac to
+    /// send to Claude for the first time; an upload already waiting for one counts too.
     static func check(adding: [String] = []) -> Report {
         guard let claude = claudeCopy() else { return Report(noSync: true) }
         let yours = Set(claude.yours)
@@ -98,24 +100,29 @@ enum Skills {
         let config = Config.load()
         try? fm.createDirectory(at: outDir, withIntermediateDirectories: true)
         try? fm.removeItem(at: outDir.appendingPathComponent(".hashes.json"))  // left by version 1
+        // Up to version 2.3 uploads were <name>.zip; carry them over so a waiting new skill still counts.
+        for old in (try? fm.contentsOfDirectory(at: outDir, includingPropertiesForKeys: nil)) ?? [] where old.pathExtension == "zip" {
+            let new = upload(for: old.deletingPathExtension().lastPathComponent)
+            if fm.fileExists(atPath: new.path) { try? fm.removeItem(at: old) } else { try? fm.moveItem(at: old, to: new) }
+        }
 
         let tmp = fm.temporaryDirectory.appendingPathComponent("skill-bridge-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: tmp) }
 
-        let pendingNew = local.filter { !yours.contains($0) && (adding.contains($0) || fm.fileExists(atPath: zip(for: $0).path)) }
+        let pendingNew = local.filter { !yours.contains($0) && (adding.contains($0) || fm.fileExists(atPath: upload(for: $0).path)) }
         var rows: [SkillRow] = []
         for name in local.filter(yours.contains) + pendingNew {
             do {
                 var (staged, notes) = try stage(name, in: tmp, config: config)
                 let isYours = yours.contains(name)
                 if isYours, try sameSkill(staged, claude.folder.appendingPathComponent(name)) {
-                    try? fm.removeItem(at: zip(for: name))
+                    try? fm.removeItem(at: upload(for: name))
                     rows.append(SkillRow(name: name, state: .upToDate, notes: notes))
                 } else {
-                    try writeZip(staged, to: zip(for: name))
-                    let bytes = (try? fm.attributesOfItem(atPath: zip(for: name).path)[.size] as? NSNumber)?.intValue ?? 0
-                    if bytes > maxZipBytes {
-                        notes.append("WARNING: the ZIP is \(bytes / 1_048_576) MB, which may be too big to upload (over 20 MB)")
+                    try writeZip(staged, to: upload(for: name))
+                    let bytes = (try? fm.attributesOfItem(atPath: upload(for: name).path)[.size] as? NSNumber)?.intValue ?? 0
+                    if bytes > maxUploadBytes {
+                        notes.append("WARNING: the .skill file is \(bytes / 1_048_576) MB, which may be too big to upload (over 20 MB)")
                     }
                     rows.append(SkillRow(name: name, state: .upload(new: !isYours), notes: notes))
                 }
@@ -151,8 +158,8 @@ enum Skills {
         try JSONSerialization.data(withJSONObject: hidden.sorted(), options: [.prettyPrinted]).write(to: hiddenFile)
     }
 
-    /// Drops a waiting ZIP for a skill you no longer want to send to Claude.
-    static func discard(_ name: String) { try? fm.removeItem(at: zip(for: name)) }
+    /// Drops a waiting upload for a skill you no longer want to send to Claude.
+    static func discard(_ name: String) { try? fm.removeItem(at: upload(for: name)) }
 
     // MARK: - Claude's copy and this Mac's skills
 
@@ -179,6 +186,29 @@ enum Skills {
     }
 
     private static func lastUpdated(_ manifest: [String: Any]) -> Double { (manifest["lastUpdated"] as? NSNumber)?.doubleValue ?? 0 }
+
+    /// Changes whenever Claude Code finishes a sync round (about every 10 minutes while it runs).
+    static func claudeCopyStamp() -> Date? {
+        let dirs = (try? fm.contentsOfDirectory(at: syncedRoot, includingPropertiesForKeys: nil)) ?? []
+        return dirs.flatMap { [$0.appendingPathComponent("manifest.json"), $0.appendingPathComponent(".last-complete-round")] }
+            .compactMap { try? fm.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date }
+            .max()
+    }
+
+    /// True when Claude Code is set not to download the account's skills
+    /// (`"syncClaudeAiSkills": false` in ~/.claude/settings.json).
+    static var syncTurnedOff: Bool {
+        guard let data = try? Data(contentsOf: home.appendingPathComponent(".claude/settings.json")),
+              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        return (settings["syncClaudeAiSkills"] as? Bool) == false
+    }
+
+    /// What to do when there is no synced copy to compare with.
+    static var noSyncAdvice: String {
+        syncTurnedOff
+            ? "Claude Code is set not to download them: remove \"syncClaudeAiSkills\": false from ~/.claude/settings.json, then start Claude Code."
+            : "Open Claude Code once and sign in with your Claude account. It downloads your skills."
+    }
 
     static func localSkills() -> [String] {
         let names = (try? fm.contentsOfDirectory(atPath: skillsDir.path)) ?? []
@@ -238,8 +268,8 @@ enum Skills {
         if declared != name { notes.append("WARNING: frontmatter name is \(declared.map { "'\($0)'" } ?? "missing"), folder is '\(name)'") }
         if let declared {
             if declared.count > 64 { notes.append("WARNING: name is \(declared.count) chars (limit 64)") }
-            if declared.range(of: "^[a-z0-9-]+$", options: .regularExpression) == nil {
-                notes.append("WARNING: name may only use lowercase letters, numbers and hyphens")
+            if declared.range(of: "^[a-z0-9]+(-[a-z0-9]+)*$", options: .regularExpression) == nil {
+                notes.append("WARNING: name may only use lowercase letters, numbers and single hyphens, none at the start or end")
             }
             for word in reservedWords where declared.lowercased().contains(word) {
                 notes.append("WARNING: name contains the reserved word '\(word)'")
@@ -249,6 +279,9 @@ enum Skills {
         if desc.isEmpty { notes.append("WARNING: no description") }
         else if desc.count > 1024 { notes.append("WARNING: description is \(desc.count) chars (limit 1024)") }
         if desc.contains("<") || desc.contains(">") { notes.append("WARNING: description contains < or >, read as XML tags") }
+        if let compat = field(lines, "compatibility"), compat.count > 500 {
+            notes.append("WARNING: compatibility is \(compat.count) chars (limit 500)")
+        }
         for ref in references(in: body, skill: dst) where !fm.fileExists(atPath: dst.appendingPathComponent(ref).path) {
             notes.append("WARNING: SKILL.md refers to \(ref), which isn't in the skill")
         }

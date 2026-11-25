@@ -10,35 +10,36 @@ command still works.)
 
 You write and test a skill in `~/.claude/skills`, where Claude Code picks up
 every change. Getting that change into Claude chat (the desktop, web and mobile
-apps) means zipping the skill and uploading it under **Settings → Capabilities →
-Skills**. Skill Bridge tells you which skills actually need that, and builds
-the ZIPs for you.
+apps) means packing the skill as a `.skill` file (a ZIP) and uploading it under
+**Settings → Plugins → Skills**. Skill Bridge tells you which skills
+actually need that, and builds those files for you.
 
 ## What it does
 
 - **Compares with your Claude account, not with its own history.** Claude Code
   keeps a copy of your Claude account's skills in `~/.claude/skills/synced/`.
   Skill Bridge compares each of your skills with that copy, by content, and
-  builds a ZIP only when Claude has an older version. The Claude app rewrites a
+  packs it only when Claude has an older version. The Claude app rewrites a
   skill's frontmatter on upload, so the header is compared by meaning, not byte
   for byte.
-- **One folder, exactly what to upload.** ZIPs land in
-  `~/Desktop/claude-skills-upload`. A skill that is up to date has no ZIP there.
+- **One folder, exactly what to upload.** `.skill` files land in
+  `~/Desktop/claude-skills-upload`. A skill that is up to date has no file there.
 - **Sets up a new Mac from your Claude account.** Skills that are in your account
   but not on this Mac can be copied into `~/.claude/skills` with one click.
 - **Sends new skills to Claude.** Skills on this Mac that aren't in your account
-  yet are listed; **Add to Claude** builds their ZIP.
+  yet are listed; **Add to Claude** packs them.
 - **Shows what changed.** **Changes** lists every file that differs from the
   copy in your Claude account, with the changed lines, before you upload.
 - **Drag and drop.** Drag a skill from the list straight into Claude's upload
-  dialog; its ZIP comes along.
+  dialog; its `.skill` file comes along.
 - **Catches what the uploader rejects.** Frontmatter keys the Claude app doesn't
   accept (for example `version:`) are moved under `metadata:`. It warns before
-  you upload about a `name` that isn't lowercase letters, numbers and hyphens, is
-  over 64 characters, contains "anthropic" or "claude", or doesn't match the
-  folder; a missing description, one over 1024 characters, or one with `<` or
-  `>`; files that `SKILL.md` refers to but the skill doesn't contain; and ZIPs
-  over 20 MB.
+  you upload about a `name` that isn't lowercase letters, numbers and single
+  hyphens (none at the start or end), is over 64 characters, contains
+  "anthropic" or "claude", or doesn't match the folder; a missing description,
+  one over 1024 characters, or one with `<` or `>`; a `compatibility` over 500
+  characters; files that `SKILL.md` refers to but the skill doesn't contain;
+  and packed skills over 20 MB.
 - **Updates itself.** Once a day it looks for a newer release on GitHub,
   downloads it and checks that it's signed by the same developer as the copy
   you have (anything else is thrown away). The new version goes in when you
@@ -72,9 +73,9 @@ make yourself are signed ad-hoc, which is fine on your own Mac; `./build.sh
 your certificate and notarytool profile (see the top of `build.sh`).
 
 You need Claude Code installed and signed in. That is how your Claude account's
-skills reach this Mac. It refreshes them every few minutes while it runs, so
-right after an upload the app may still list the skill until Claude Code has
-synced.
+skills reach this Mac. It checks for changes about every 10 minutes while it
+runs, so right after an upload the app still lists the skill until Claude Code
+has synced; the window updates by itself when it has.
 
 ## Terminal
 
@@ -86,7 +87,7 @@ skill-bridge                  check all your skills, build what changed
 skill-bridge NAME ...         also send these skills on this Mac to Claude
 skill-bridge --setup NAME     copy a skill from your Claude account onto this Mac
 skill-bridge --hide NAME      stop offering to set it up on this Mac (--unhide to undo)
-skill-bridge --discard NAME   drop a waiting ZIP for a skill not in Claude yet
+skill-bridge --discard NAME   drop a waiting .skill file for a skill not in Claude yet
 skill-bridge --changes NAME   show what differs from the copy in your Claude account
 skill-bridge --no-open        don't open the folder in Finder
 ```
@@ -97,7 +98,7 @@ Without the link: `"/Applications/Skill Bridge.app/Contents/MacOS/SkillBridge" -
 
 Some skills keep a file outside their folder, for example in a repository they
 were cloned from. List those in `~/.config/skill-bridge/config.json` and they
-are copied into the ZIP; `textFixes` then edits `SKILL.md` to match. See
+are copied into the `.skill` file; `textFixes` then edits `SKILL.md` to match. See
 [`config.example.json`](config.example.json):
 
 ```json
@@ -131,7 +132,7 @@ Not affiliated with Anthropic. Claude is a trademark of Anthropic.
 Push a version tag and GitHub builds, signs, notarizes and publishes the app:
 
 ```bash
-git tag v2.3 && git push origin v2.3
+git tag v2.4 && git push origin v2.4
 ```
 
 The workflow (`.github/workflows/release.yml`) needs six repository secrets: the
